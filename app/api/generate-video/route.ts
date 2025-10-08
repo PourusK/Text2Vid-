@@ -1,4 +1,3 @@
-const DEFAULT_MODEL_ID = "veo-1.5-001";
 const API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 const POLL_INTERVAL_MS = 4000;
 const MAX_POLLS = 45; // ~3 minutes of polling time
@@ -70,7 +69,7 @@ export async function POST(req: Request) {
 
       const message =
         errorBody?.error?.status === "NOT_FOUND"
-          ? `${baseMessage} The configured model "${modelId}" is unavailable for predictLongRunning. Set GEMINI_VIDEO_MODEL to a supported Gemini video model (e.g. "veo-1.5-001").`
+          ? `${baseMessage} The configured model "${modelId}" is unavailable for predictLongRunning. Set GEMINI_VIDEO_MODEL to a supported Gemini video model available to your API key (use the ListModels API to confirm access).`
           : baseMessage;
 
       throw new GeminiApiError(message, startResponse.status);
@@ -111,7 +110,10 @@ async function resolveModelId(apiKey: string): Promise<string> {
     console.warn("[generate-video] Unable to auto-detect Gemini video model", error);
   }
 
-  return DEFAULT_MODEL_ID;
+  throw new GeminiApiError(
+    "No Gemini video models supporting predictLongRunning are available for this API key. Set GEMINI_VIDEO_MODEL to a supported model.",
+    500
+  );
 }
 
 function normalizeModelId(model: string): string {
@@ -124,31 +126,48 @@ function normalizeModelId(model: string): string {
 }
 
 async function discoverVideoModel(apiKey: string): Promise<string | null> {
-  const listResponse = await fetch(`${API_BASE_URL}/models?key=${apiKey}`);
+  let pageToken: string | undefined;
 
-  if (!listResponse.ok) {
-    return null;
-  }
+  do {
+    const params = new URLSearchParams({
+      key: apiKey,
+      view: "FULL",
+      pageSize: "100",
+    });
 
-  const payload: {
-    models?: Array<{
-      name?: string;
-      supportedGenerationMethods?: string[];
-    }>;
-  } = await listResponse.json();
+    if (pageToken) {
+      params.set("pageToken", pageToken);
+    }
 
-  const candidates = payload.models ?? [];
+    const listResponse = await fetch(`${API_BASE_URL}/models?${params.toString()}`);
 
-  const match = candidates.find((model) => {
-    const methods = model.supportedGenerationMethods ?? [];
-    return methods.includes("predictLongRunning") || methods.includes("generateVideo");
-  });
+    if (!listResponse.ok) {
+      return null;
+    }
 
-  if (!match?.name) {
-    return null;
-  }
+    const payload: {
+      models?: Array<{
+        name?: string;
+        supportedGenerationMethods?: string[];
+      }>;
+      nextPageToken?: string;
+    } = await listResponse.json();
 
-  return normalizeModelId(match.name);
+    const candidates = payload.models ?? [];
+
+    const match = candidates.find((model) => {
+      const methods = model.supportedGenerationMethods ?? [];
+      return methods.includes("predictLongRunning") || methods.includes("generateVideo");
+    });
+
+    if (match?.name) {
+      return normalizeModelId(match.name);
+    }
+
+    pageToken = payload.nextPageToken;
+  } while (pageToken);
+
+  return null;
 }
 
 async function pollForVideo(operationName: string, apiKey: string, attempts = 0): Promise<string> {
