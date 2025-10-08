@@ -1,70 +1,50 @@
-import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
-type SoraVideoResponse = {
-  data?: Array<{ url?: string | null } | null> | null;
-  url?: string | null;
-};
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-type SoraVideoClient = {
-  videos: {
-    create: (params: {
-      model: string;
-      prompt: string;
-      duration: number;
-      resolution: string;
-    }) => Promise<SoraVideoResponse>;
-  };
-};
-
-export async function POST(request: Request) {
+export async function POST(req: Request) {
   try {
-    const { prompt } = await request.json();
+    const { prompt } = await req.json();
+    console.log("[generate-video] prompt:", prompt);
 
-    if (!prompt || typeof prompt !== "string") {
-      return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
-    }
-
-    console.info("[generate-video] prompt:", prompt);
-
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      console.error("[generate-video] Missing OPENAI_API_KEY environment variable");
-      return NextResponse.json(
-        { error: "OPENAI_API_KEY environment variable is not configured." },
+    if (!process.env.OPENAI_API_KEY) {
+      return Response.json(
+        { error: "Missing OpenAI API key" },
         { status: 500 }
       );
     }
 
-    const openai = new OpenAI({ apiKey });
+    try {
+      // --- Try SORA video generation first ---
+      const result = await openai.videos.create({
+        model: "sora-2-preview",
+        prompt,
+        duration: 5,
+        resolution: "720p",
+      });
 
-    const soraClient = openai as OpenAI & SoraVideoClient;
+      console.log("[generate-video] SORA success:", result);
+      return Response.json({ type: "video", url: result.data[0].url });
+    } catch (err: any) {
+      // --- Fallback if SORA isn't available ---
+      console.warn("[generate-video] SORA failed, using image fallback:", err.message);
 
-    const response = await soraClient.videos.create({
-      model: "sora-2-preview",
-      prompt,
-      duration: 30,
-      resolution: "720p",
-    });
+      const fallback = await openai.images.generate({
+        model: "gpt-image-1",
+        prompt: `${prompt}. cinematic still frame.`,
+        size: "1024x1024",
+      });
 
-    const videoUrl =
-      response?.data?.find((item) => item?.url)?.url ?? response?.url ?? undefined;
-
-    if (!videoUrl) {
-      console.error("[generate-video] Missing URL in response", response);
-      return NextResponse.json(
-        { error: "Failed to retrieve a video URL from OpenAI." },
-        { status: 502 }
-      );
+      return Response.json({
+        type: "image",
+        url: fallback.data[0].url,
+        note: "SORA not available; generated fallback image instead.",
+      });
     }
-
-    console.info("[generate-video] success url:", videoUrl);
-
-    return NextResponse.json({ url: videoUrl });
-  } catch (error) {
+  } catch (error: any) {
     console.error("[generate-video] error:", error);
-    return NextResponse.json(
-      { error: "An error occurred while generating the video." },
+    return Response.json(
+      { error: error.message, details: error.response?.data || null },
       { status: 500 }
     );
   }
