@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     }
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+    const model = genAI.getGenerativeModel({ model: MODEL_NAME }, { apiVersion: "v1beta" });
 
     const result: GeminiVideoResponse = await (model as unknown as {
       generateVideo: (args: { prompt: string }) => Promise<GeminiVideoResponse>;
