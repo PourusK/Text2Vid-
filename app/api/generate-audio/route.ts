@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
 export async function POST(request: Request) {
   try {
     const { text } = await request.json();
@@ -13,14 +11,26 @@ export async function POST(request: Request) {
 
     console.info("[generate-audio] text:", text);
 
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      console.error("[generate-audio] Missing OPENAI_API_KEY environment variable");
+      return NextResponse.json(
+        { error: "OPENAI_API_KEY environment variable is not configured." },
+        { status: 500 }
+      );
+    }
+
+    const openai = new OpenAI({ apiKey });
+
     const response = await openai.audio.speech.create({
       model: "gpt-4o-mini-tts",
       voice: "alloy",
       input: text,
-      format: "mp3",
     });
 
-    const audioUrl = response?.url ?? response?.data?.[0]?.url;
+    const arrayBuffer = await response.arrayBuffer();
+    const base64Audio = Buffer.from(arrayBuffer).toString("base64");
+    const audioUrl = `data:audio/mp3;base64,${base64Audio}`;
 
     if (!audioUrl) {
       console.error("[generate-audio] Missing URL in response", response);
