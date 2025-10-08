@@ -5,7 +5,7 @@ import {
   type Part,
 } from "@google/generative-ai";
 
-const MODEL_NAME = "veo-3-fast";
+const MODEL_NAME = "models/veo-3-fast";
 const VIDEO_MIME_TYPE = "video/mp4";
 
 const isFileDataPart = (part: Part): part is Extract<Part, { fileData: unknown }> =>
