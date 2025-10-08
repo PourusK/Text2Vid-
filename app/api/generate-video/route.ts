@@ -1,71 +1,101 @@
-import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
-type SoraVideoResponse = {
-  data?: Array<{ url?: string | null } | null> | null;
-  url?: string | null;
+type SoraVideoResult = {
+  data: Array<{ url: string }>;
 };
 
-type SoraVideoClient = {
+type OpenAIWithSora = OpenAI & {
   videos: {
     create: (params: {
       model: string;
       prompt: string;
       duration: number;
       resolution: string;
-    }) => Promise<SoraVideoResponse>;
+    }) => Promise<SoraVideoResult>;
   };
 };
 
-export async function POST(request: Request) {
-  try {
-    const { prompt } = await request.json();
+type ImageResult = {
+  data?: Array<{ url?: string | null }>;
+};
 
-    if (!prompt || typeof prompt !== "string") {
-      return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
+let cachedClient: OpenAI | null = null;
+
+function getOpenAIClient(): OpenAI {
+  if (!cachedClient) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error("Missing OpenAI API key");
     }
 
-    console.info("[generate-video] prompt:", prompt);
+    cachedClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      console.error("[generate-video] Missing OPENAI_API_KEY environment variable");
-      return NextResponse.json(
-        { error: "OPENAI_API_KEY environment variable is not configured." },
+  return cachedClient;
+}
+
+export async function POST(req: Request) {
+  try {
+    const { prompt } = await req.json();
+    console.log("[generate-video] prompt:", prompt);
+
+    if (!process.env.OPENAI_API_KEY) {
+      return Response.json(
+        { error: "Missing OpenAI API key" },
         { status: 500 }
       );
     }
 
-    const openai = new OpenAI({ apiKey });
+    try {
+      // --- Try SORA video generation first ---
+      const client = getOpenAIClient();
+      const soraClient = (client as OpenAIWithSora).videos;
 
-    const soraClient = openai as OpenAI & SoraVideoClient;
+      const result = await soraClient.create({
+        model: "sora-2-preview",
+        prompt,
+        duration: 5,
+        resolution: "720p",
+      });
 
-    const response = await soraClient.videos.create({
-      model: "sora-2-preview",
-      prompt,
-      duration: 30,
-      resolution: "720p",
-    });
+      console.log("[generate-video] SORA success:", result);
+      return Response.json({ type: "video", url: result.data[0].url });
+    } catch (err: unknown) {
+      // --- Fallback if SORA isn't available ---
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn("[generate-video] SORA failed, using image fallback:", message);
 
-    const videoUrl =
-      response?.data?.find((item) => item?.url)?.url ?? response?.url ?? undefined;
+      const client = getOpenAIClient();
+      const fallback = (await client.images.generate({
+        model: "gpt-image-1",
+        prompt: `${prompt}. cinematic still frame.`,
+        size: "1024x1024",
+      })) as ImageResult;
 
-    if (!videoUrl) {
-      console.error("[generate-video] Missing URL in response", response);
-      return NextResponse.json(
-        { error: "Failed to retrieve a video URL from OpenAI." },
-        { status: 502 }
-      );
+      const fallbackUrl = fallback.data?.[0]?.url ?? null;
+      if (!fallbackUrl) {
+        console.error("[generate-video] image fallback missing URL", fallback);
+        return Response.json(
+          { error: "Image fallback did not return a URL" },
+          { status: 502 }
+        );
+      }
+
+      return Response.json({
+        type: "image",
+        url: fallbackUrl,
+        note: "SORA not available; generated fallback image instead.",
+      });
+    }
+  } catch (error: unknown) {
+    console.error("[generate-video] error:", error);
+
+    const message = error instanceof Error ? error.message : String(error);
+    let details: unknown = null;
+    if (typeof error === "object" && error !== null && "response" in error) {
+      const response = (error as { response?: { data?: unknown } }).response;
+      details = response?.data ?? null;
     }
 
-    console.info("[generate-video] success url:", videoUrl);
-
-    return NextResponse.json({ url: videoUrl });
-  } catch (error) {
-    console.error("[generate-video] error:", error);
-    return NextResponse.json(
-      { error: "An error occurred while generating the video." },
-      { status: 500 }
-    );
+    return Response.json({ error: message, details }, { status: 500 });
   }
 }
