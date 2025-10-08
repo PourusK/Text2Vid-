@@ -1,41 +1,15 @@
-import {
-  GoogleGenerativeAI,
-  type GenerateContentResult,
-  BlockReason,
-} from "@google/generative-ai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const MODEL_NAME = "models/veo-3-fast";
+const MODEL_NAME = "veo-3-fast";
 
-type CandidatePart = {
-  fileData?: { fileUri?: string | null; mimeType?: string | null } | null;
-  inlineData?: { data?: string | null; mimeType?: string | null } | null;
+type GeminiVideoResponse = {
+  video?: { uri?: string | null } | null;
+  output?: Array<
+    | { url?: string | null }
+    | { media?: { url?: string | null } | null }
+    | Record<string, unknown>
+  >;
 };
-
-function extractVideoUrl(result: GenerateContentResult): string | null {
-  const candidates = result.response.candidates ?? [];
-
-  for (const candidate of candidates) {
-    const parts = (candidate.content?.parts ?? []) as CandidatePart[];
-
-    for (const part of parts) {
-      const fileUri = part.fileData?.fileUri;
-      const fileMime = part.fileData?.mimeType ?? "";
-
-      if (fileUri && fileMime.startsWith("video/")) {
-        return fileUri;
-      }
-
-      const inlineMime = part.inlineData?.mimeType ?? "";
-      const inlineData = part.inlineData?.data;
-
-      if (inlineData && inlineMime.startsWith("video/")) {
-        return `data:${inlineMime};base64,${inlineData}`;
-      }
-    }
-  }
-
-  return null;
-}
 
 export async function POST(req: Request) {
   try {
@@ -52,24 +26,16 @@ export async function POST(req: Request) {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: MODEL_NAME }, { apiVersion: "v1beta" });
 
-    const result = await model.generateContent({
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: prompt.trim() }],
-        },
-      ],
-    });
+    const result: GeminiVideoResponse = await (model as unknown as {
+      generateVideo: (args: { prompt: string }) => Promise<GeminiVideoResponse>;
+    }).generateVideo({ prompt });
 
-    const blockReason = result.response.promptFeedback?.blockReason;
-    if (blockReason && blockReason !== BlockReason.BLOCKED_REASON_UNSPECIFIED) {
-      const reasonMessage =
-        result.response.promptFeedback?.blockReasonMessage ||
-        `Prompt was blocked by Gemini (${blockReason}).`;
-      return Response.json({ error: reasonMessage }, { status: 400 });
-    }
+    const firstOutput = result.output?.[0] as
+      | { url?: string | null; media?: { url?: string | null } | null }
+      | undefined;
 
-    const videoUrl = extractVideoUrl(result);
+    const videoUrl =
+      result.video?.uri || firstOutput?.url || firstOutput?.media?.url || null;
 
     if (!videoUrl) {
       throw new Error("No video URL returned from Gemini.");
