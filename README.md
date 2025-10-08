@@ -1,13 +1,12 @@
 # PokiPackage
 
-PokiPackage is a dark, cinematic Next.js studio for turning text prompts into video and audio using Google's Gemini video models and OpenAI's Audio API. The app features a neon-accented interface, loading feedback, and a gallery that keeps your generated creations accessible.
+PokiPackage is a dark, cinematic Next.js studio for turning text prompts into video using Google's Gemini video models. The app features a neon-accented interface, loading feedback, and a gallery that keeps your generated creations accessible.
 
 ## ✨ Features
-- **Text-to-Video** with Google's Gemini `veo-3-fast` model
-- **Text-to-Audio** with OpenAI's speech API for natural narration
+- **Text-to-Video** with Google's Gemini video models (defaults to `veo-1.5-001`)
 - Neon green, cinematic UI built with Tailwind CSS and Framer Motion animations
 - Gallery with quick previews to replay previously generated assets
-- API routes wired to the Google Gemini and OpenAI SDKs
+- API route wired to the Google Gemini SDK
 
 ## 🚀 Getting Started
 
@@ -15,7 +14,6 @@ PokiPackage is a dark, cinematic Next.js studio for turning text prompts into vi
 - Node.js 18.17 or later
 - npm 9 or later
 - A Google AI Studio API key with access to the Gemini video models
-- An OpenAI API key with access to the Audio endpoints
 
 ### Installation
 ```bash
@@ -26,8 +24,9 @@ npm install
 Create a `.env.local` file in the project root with your API credentials:
 
 ```bash
-GEMINI_API_KEY=your_google_gemini_api_key
-OPENAI_API_KEY=your_openai_api_key
+GEMINI_API_KEY=your_google_gemini_api_key # or set GOOGLE_API_KEY
+# Optional: override the Gemini video model (e.g. veo-1.5-001)
+# GEMINI_VIDEO_MODEL=your_preferred_model
 ```
 
 ### Running Locally
@@ -40,17 +39,13 @@ The app will be available at [http://localhost:3000](http://localhost:3000).
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/api/generate-video` | `POST` | Generates a video using Google's Gemini VEO 3 Fast model. |
-| `/api/generate-audio` | `POST` | Produces speech audio (mp3) from text using OpenAI's Audio API. |
+| `/api/generate-video` | `POST` | Generates a video using Google's Gemini video models. |
 
 Each endpoint expects JSON input:
 
 ```json
 // /api/generate-video
 { "prompt": "A neon city skyline at night" }
-
-// /api/generate-audio
-{ "text": "Welcome to PokiPackage." }
 ```
 
 Responses return a JSON payload containing a `url` pointing to the generated media.
@@ -64,17 +59,11 @@ curl -X POST http://localhost:3000/api/generate-video \
   -d '{"prompt":"A cinematic spaceship launch"}'
 ```
 
-```bash
-curl -X POST http://localhost:3000/api/generate-audio \
-  -H "Content-Type: application/json" \
-  -d '{"text":"This is PokiPackage bringing your ideas to life."}'
-```
-
 ## 🛠 Deployment
 Deploy directly to Vercel:
 1. Push the project to a Git repository.
 2. Import the repository in Vercel.
-3. Set the `GEMINI_API_KEY` and `OPENAI_API_KEY` environment variables in the Vercel dashboard.
+3. Set the `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) environment variable in the Vercel dashboard.
 4. Deploy and enjoy your cinematic text-to-video studio.
 
 ## 📄 License
