@@ -1,5 +1,9 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import type { GenerateContentResult, Part } from "@google/generative-ai";
+import {
+  GoogleGenerativeAI,
+  GoogleGenerativeAIFetchError,
+  type GenerateContentResult,
+  type Part,
+} from "@google/generative-ai";
 
 const MODEL_NAME = "veo-3-fast";
 const VIDEO_MIME_TYPE = "video/mp4";
@@ -63,9 +67,6 @@ export async function POST(req: Request) {
           parts: [{ text: prompt }],
         },
       ],
-      generationConfig: {
-        responseMimeType: VIDEO_MIME_TYPE,
-      },
     });
 
     const videoUrl = extractVideoUrl(result);
@@ -81,6 +82,18 @@ export async function POST(req: Request) {
     return Response.json({ type: "video", url: videoUrl });
   } catch (err: unknown) {
     console.error("[generate-video] error:", err);
+
+    if (err instanceof GoogleGenerativeAIFetchError) {
+      const detailMessage =
+        err.errorDetails?.map((detail) => detail.message).join("\n") ||
+        err.statusText ||
+        err.message;
+
+      return Response.json(
+        { error: detailMessage },
+        { status: err.status ?? 502 }
+      );
+    }
 
     const message = err instanceof Error ? err.message : String(err);
     return Response.json({ error: message }, { status: 500 });
