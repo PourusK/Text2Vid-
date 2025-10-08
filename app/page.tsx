@@ -48,6 +48,16 @@ export default function HomePage() {
       setInput("");
     } catch (err) {
       console.error("Failed to generate video:", err);
+      if (axios.isAxiosError(err)) {
+        const serverMessage = err.response?.data?.error;
+        setError(
+          typeof serverMessage === "string" && serverMessage.trim().length > 0
+            ? serverMessage
+            : err.message
+        );
+        return;
+      }
+
       setError(
         err instanceof Error
           ? err.message

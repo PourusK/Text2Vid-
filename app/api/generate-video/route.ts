@@ -3,6 +3,16 @@ const API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 const POLL_INTERVAL_MS = 4000;
 const MAX_POLLS = 45; // ~3 minutes of polling time
 
+class GeminiApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "GeminiApiError";
+    this.status = status;
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const { prompt } = await req.json();
@@ -26,6 +36,20 @@ export async function POST(req: Request) {
       );
     }
 
+    const requestBody = {
+      instances: [
+        {
+          prompt: {
+            text: prompt,
+          },
+          text: prompt,
+        },
+      ],
+      parameters: {
+        sampleCount: 1,
+      },
+    } satisfies Record<string, unknown>;
+
     const startResponse = await fetch(
       `${API_BASE_URL}/models/${MODEL_NAME}:predictLongRunning?key=${apiKey}`,
       {
@@ -33,24 +57,16 @@ export async function POST(req: Request) {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          instances: [
-            {
-              prompt,
-            },
-          ],
-          parameters: {
-            sampleCount: 1,
-          },
-        }),
+        body: JSON.stringify(requestBody),
       }
     );
 
     if (!startResponse.ok) {
       const errorBody = await safeJson(startResponse);
-      throw new Error(
+      throw new GeminiApiError(
         errorBody?.error?.message ||
-          `Gemini returned HTTP ${startResponse.status} when starting video generation.`
+          `Gemini returned HTTP ${startResponse.status} when starting video generation.`,
+        startResponse.status
       );
     }
 
@@ -66,13 +82,14 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("[generate-video] error:", error);
     const message = error instanceof Error ? error.message : "Video generation failed";
-    return Response.json({ error: message }, { status: 500 });
+    const status = error instanceof GeminiApiError ? error.status : 500;
+    return Response.json({ error: message }, { status });
   }
 }
 
 async function pollForVideo(operationName: string, apiKey: string, attempts = 0): Promise<string> {
   if (attempts >= MAX_POLLS) {
-    throw new Error("Video generation timed out before completion.");
+    throw new GeminiApiError("Video generation timed out before completion.", 504);
   }
 
   const normalizedName = operationName.replace(/^\//, "");
@@ -83,9 +100,10 @@ async function pollForVideo(operationName: string, apiKey: string, attempts = 0)
 
   if (!operationResponse.ok) {
     const errorBody = await safeJson(operationResponse);
-    throw new Error(
+    throw new GeminiApiError(
       errorBody?.error?.message ||
-        `Gemini returned HTTP ${operationResponse.status} while polling video generation.`
+        `Gemini returned HTTP ${operationResponse.status} while polling video generation.`,
+      operationResponse.status
     );
   }
 
@@ -100,7 +118,10 @@ async function pollForVideo(operationName: string, apiKey: string, attempts = 0)
   } = await operationResponse.json();
 
   if (payload.error) {
-    throw new Error(payload.error.message || "Gemini returned an error while generating the video.");
+    throw new GeminiApiError(
+      payload.error.message || "Gemini returned an error while generating the video.",
+      500
+    );
   }
 
   if (!payload.done) {
@@ -108,14 +129,114 @@ async function pollForVideo(operationName: string, apiKey: string, attempts = 0)
     return pollForVideo(operationName, apiKey, attempts + 1);
   }
 
-  const videoUrl =
-    payload.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri || null;
+  const videoUrl = extractVideoUrl(payload.response) || null;
 
   if (!videoUrl) {
-    throw new Error("Gemini completed the request but did not return a video URL.");
+    throw new GeminiApiError(
+      "Gemini completed the request but did not return a video URL.",
+      502
+    );
   }
 
   return videoUrl;
+}
+
+function extractVideoUrl(response: unknown): string | null {
+  if (!response || typeof response !== "object") {
+    return null;
+  }
+
+  const candidateSources: Array<unknown> = [];
+
+  // Handle the documented generateVideoResponse shape first.
+  const generateVideoResponse = (response as {
+    generateVideoResponse?: { generatedSamples?: Array<{ video?: { uri?: string } }> };
+  }).generateVideoResponse;
+
+  if (generateVideoResponse?.generatedSamples) {
+    candidateSources.push(...generateVideoResponse.generatedSamples);
+  }
+
+  // Some responses may embed predictions arrays similar to other predict endpoints.
+  const predictions = (response as { predictions?: unknown[] }).predictions;
+  if (Array.isArray(predictions)) {
+    candidateSources.push(...predictions);
+  }
+
+  // Flat video/url fields on the response itself.
+  candidateSources.push(response);
+
+  for (const candidate of candidateSources) {
+    if (!candidate || typeof candidate !== "object") {
+      continue;
+    }
+
+    const maybeUrl = readVideoUrl(candidate);
+    if (maybeUrl) {
+      return maybeUrl;
+    }
+  }
+
+  return null;
+}
+
+function readVideoUrl(source: unknown): string | null {
+  if (!source || typeof source !== "object") {
+    return null;
+  }
+
+  const candidate = source as Record<string, unknown>;
+
+  const directUri = candidate["uri"];
+  if (typeof directUri === "string" && directUri.startsWith("http")) {
+    return directUri;
+  }
+
+  const video = candidate["video"] as Record<string, unknown> | undefined;
+  if (video) {
+    const uri = video["uri"];
+    if (typeof uri === "string" && uri.startsWith("http")) {
+      return uri;
+    }
+    const downloadUri = video["downloadUri"];
+    if (typeof downloadUri === "string" && downloadUri.startsWith("http")) {
+      return downloadUri;
+    }
+  }
+
+  const media = candidate["media"] as Record<string, unknown> | undefined;
+  if (media) {
+    const url = media["url"];
+    if (typeof url === "string" && url.startsWith("http")) {
+      return url;
+    }
+    const downloadUri = media["downloadUri"];
+    if (typeof downloadUri === "string" && downloadUri.startsWith("http")) {
+      return downloadUri;
+    }
+  }
+
+  const output = candidate["output"];
+  if (Array.isArray(output)) {
+    for (const entry of output) {
+      const nested = readVideoUrl(entry);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+
+  const generatedSamples = candidate["generatedSamples"];
+  if (Array.isArray(generatedSamples)) {
+    for (const sample of generatedSamples) {
+      const nested = readVideoUrl(sample);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+
+  return null;
 }
 
 async function safeJson(response: Response) {
