@@ -3,7 +3,7 @@
 PokiPackage is a dark, cinematic Next.js studio for turning text prompts into video using Google's Gemini video models. The app features a neon-accented interface, loading feedback, and a gallery that keeps your generated creations accessible.
 
 ## ✨ Features
-- **Text-to-Video** with Google's Gemini `veo-3-fast` model
+- **Text-to-Video** with Google's Gemini video models (defaults to `veo-1.5-001`)
 - Neon green, cinematic UI built with Tailwind CSS and Framer Motion animations
 - Gallery with quick previews to replay previously generated assets
 - API route wired to the Google Gemini SDK
@@ -25,6 +25,8 @@ Create a `.env.local` file in the project root with your API credentials:
 
 ```bash
 GEMINI_API_KEY=your_google_gemini_api_key # or set GOOGLE_API_KEY
+# Optional: override the Gemini video model (e.g. veo-1.5-001)
+# GEMINI_VIDEO_MODEL=your_preferred_model
 ```
 
 ### Running Locally
@@ -37,7 +39,7 @@ The app will be available at [http://localhost:3000](http://localhost:3000).
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/api/generate-video` | `POST` | Generates a video using Google's Gemini VEO 3 Fast model. |
+| `/api/generate-video` | `POST` | Generates a video using Google's Gemini video models. |
 
 Each endpoint expects JSON input:
 

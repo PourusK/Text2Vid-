@@ -1,4 +1,4 @@
-const MODEL_NAME = "veo-3-fast";
+const DEFAULT_MODEL_ID = "veo-1.5-001";
 const API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 const POLL_INTERVAL_MS = 4000;
 const MAX_POLLS = 45; // ~3 minutes of polling time
@@ -36,13 +36,14 @@ export async function POST(req: Request) {
       );
     }
 
+    const modelId = await resolveModelId(apiKey);
+
     const requestBody = {
       instances: [
         {
           prompt: {
             text: prompt,
           },
-          text: prompt,
         },
       ],
       parameters: {
@@ -51,7 +52,7 @@ export async function POST(req: Request) {
     } satisfies Record<string, unknown>;
 
     const startResponse = await fetch(
-      `${API_BASE_URL}/models/${MODEL_NAME}:predictLongRunning?key=${apiKey}`,
+      `${API_BASE_URL}/models/${modelId}:predictLongRunning?key=${apiKey}`,
       {
         method: "POST",
         headers: {
@@ -63,11 +64,16 @@ export async function POST(req: Request) {
 
     if (!startResponse.ok) {
       const errorBody = await safeJson(startResponse);
-      throw new GeminiApiError(
+      const baseMessage =
         errorBody?.error?.message ||
-          `Gemini returned HTTP ${startResponse.status} when starting video generation.`,
-        startResponse.status
-      );
+        `Gemini returned HTTP ${startResponse.status} when starting video generation.`;
+
+      const message =
+        errorBody?.error?.status === "NOT_FOUND"
+          ? `${baseMessage} The configured model "${modelId}" is unavailable for predictLongRunning. Set GEMINI_VIDEO_MODEL to a supported Gemini video model (e.g. "veo-1.5-001").`
+          : baseMessage;
+
+      throw new GeminiApiError(message, startResponse.status);
     }
 
     const operation: { name?: string } = await startResponse.json();
@@ -85,6 +91,64 @@ export async function POST(req: Request) {
     const status = error instanceof GeminiApiError ? error.status : 500;
     return Response.json({ error: message }, { status });
   }
+}
+
+async function resolveModelId(apiKey: string): Promise<string> {
+  const configuredModel = normalizeModelId(
+    process.env.GEMINI_VIDEO_MODEL ?? process.env.GOOGLE_VIDEO_MODEL ?? ""
+  );
+
+  if (configuredModel) {
+    return configuredModel;
+  }
+
+  try {
+    const listedModel = await discoverVideoModel(apiKey);
+    if (listedModel) {
+      return listedModel;
+    }
+  } catch (error) {
+    console.warn("[generate-video] Unable to auto-detect Gemini video model", error);
+  }
+
+  return DEFAULT_MODEL_ID;
+}
+
+function normalizeModelId(model: string): string {
+  const trimmed = model.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  return trimmed.startsWith("models/") ? trimmed.slice("models/".length) : trimmed;
+}
+
+async function discoverVideoModel(apiKey: string): Promise<string | null> {
+  const listResponse = await fetch(`${API_BASE_URL}/models?key=${apiKey}`);
+
+  if (!listResponse.ok) {
+    return null;
+  }
+
+  const payload: {
+    models?: Array<{
+      name?: string;
+      supportedGenerationMethods?: string[];
+    }>;
+  } = await listResponse.json();
+
+  const candidates = payload.models ?? [];
+
+  const match = candidates.find((model) => {
+    const methods = model.supportedGenerationMethods ?? [];
+    return methods.includes("predictLongRunning") || methods.includes("generateVideo");
+  });
+
+  if (!match?.name) {
+    return null;
+  }
+
+  return normalizeModelId(match.name);
 }
 
 async function pollForVideo(operationName: string, apiKey: string, attempts = 0): Promise<string> {
