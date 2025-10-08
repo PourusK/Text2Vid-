@@ -4,44 +4,40 @@ import { useState } from "react";
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
 
-interface GeneratedItem {
+interface GeneratedVideo {
   id: string;
-  type: "video" | "audio";
   url: string;
   prompt: string;
   createdAt: number;
 }
 
-type ActiveTab = "video" | "audio" | null;
-
 export default function HomePage() {
   const [input, setInput] = useState("");
-  const [activeItem, setActiveItem] = useState<GeneratedItem | null>(null);
-  const [gallery, setGallery] = useState<GeneratedItem[]>([]);
-  const [loading, setLoading] = useState<ActiveTab>(null);
+  const [activeItem, setActiveItem] = useState<GeneratedVideo | null>(null);
+  const [gallery, setGallery] = useState<GeneratedVideo[]>([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleGenerate = async (mode: "video" | "audio") => {
+  const handleGenerate = async () => {
     if (!input.trim()) {
-      setError("Please enter a description to generate media.");
+      setError("Please enter a description to generate a video.");
       return;
     }
 
-    setLoading(mode);
+    setLoading(true);
     setError(null);
 
     try {
-      const endpoint = mode === "video" ? "/api/generate-video" : "/api/generate-audio";
-      const payload = mode === "video" ? { prompt: input } : { text: input };
-      const { data } = await axios.post<{ url: string }>(endpoint, payload);
+      const { data } = await axios.post<{ url: string }>("/api/generate-video", {
+        prompt: input,
+      });
 
       if (!data?.url) {
         throw new Error("No media URL returned from the server.");
       }
 
-      const newItem: GeneratedItem = {
-        id: `${mode}-${Date.now()}`,
-        type: mode,
+      const newItem: GeneratedVideo = {
+        id: `video-${Date.now()}`,
         url: data.url,
         prompt: input,
         createdAt: Date.now(),
@@ -51,14 +47,14 @@ export default function HomePage() {
       setActiveItem(newItem);
       setInput("");
     } catch (err) {
-      console.error(`Failed to generate ${mode}:`, err);
+      console.error("Failed to generate video:", err);
       setError(
         err instanceof Error
           ? err.message
-          : "An unexpected error occurred while generating media."
+          : "An unexpected error occurred while generating the video."
       );
     } finally {
-      setLoading(null);
+      setLoading(false);
     }
   };
 
@@ -67,7 +63,7 @@ export default function HomePage() {
       return (
         <div className="flex flex-col items-center justify-center gap-4 py-16 text-muted">
           <div className="h-16 w-16 animate-spin rounded-full border-4 border-neon/50 border-t-transparent" />
-          <p className="text-lg uppercase tracking-widest">Generating {loading}...</p>
+          <p className="text-lg uppercase tracking-widest">Generating video...</p>
         </div>
       );
     }
@@ -83,7 +79,7 @@ export default function HomePage() {
     if (!activeItem) {
       return (
         <div className="py-16 text-center text-muted">
-          Your generated videos and audio will appear here.
+          Your generated videos will appear here.
         </div>
       );
     }
@@ -99,24 +95,12 @@ export default function HomePage() {
           className="w-full"
         >
           <div className="rounded-2xl border border-white/10 bg-black/40 p-4 shadow-lg shadow-neon/10 backdrop-blur">
-            <p className="mb-3 text-sm uppercase tracking-widest text-neon">
-              {activeItem.type === "video" ? "Video" : "Audio"} generated
-            </p>
-            {activeItem.type === "video" ? (
-              <video
-                controls
-                className="aspect-video w-full rounded-xl border border-white/10"
-                src={activeItem.url}
-              />
-            ) : (
-              <div className="flex flex-col items-center gap-4">
-                <audio controls className="w-full">
-                  <source src={activeItem.url} />
-                  Your browser does not support the audio element.
-                </audio>
-                <p className="text-sm text-muted">Prompt: {activeItem.prompt}</p>
-              </div>
-            )}
+            <p className="mb-3 text-sm uppercase tracking-widest text-neon">Video generated</p>
+            <video
+              controls
+              className="aspect-video w-full rounded-xl border border-white/10"
+              src={activeItem.url}
+            />
           </div>
         </motion.div>
       </AnimatePresence>
@@ -135,7 +119,7 @@ export default function HomePage() {
           PokiPackage
         </h1>
         <p className="mt-4 text-base text-muted">
-          Enter a description below to generate video or audio using OpenAI SORA.
+          Enter a description below to generate videos using Google&apos;s Gemini models.
           <br />
           Your creations will appear below in the gallery.
         </p>
@@ -157,18 +141,11 @@ export default function HomePage() {
             />
             <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
               <button
-                onClick={() => handleGenerate("video")}
-                disabled={loading !== null}
+                onClick={handleGenerate}
+                disabled={loading}
                 className="rounded-full bg-neon px-6 py-3 text-sm font-semibold uppercase tracking-[0.3em] text-black transition hover:shadow-neon focus:outline-none focus:ring-2 focus:ring-neon/70 disabled:cursor-not-allowed disabled:bg-neon/40 disabled:text-black/40"
               >
                 Generate Video
-              </button>
-              <button
-                onClick={() => handleGenerate("audio")}
-                disabled={loading !== null}
-                className="rounded-full bg-transparent px-6 py-3 text-sm font-semibold uppercase tracking-[0.3em] text-neon transition hover:bg-neon/10 hover:shadow-neon focus:outline-none focus:ring-2 focus:ring-neon/70 disabled:cursor-not-allowed disabled:text-neon/40"
-              >
-                Generate Audio
               </button>
             </div>
           </div>
@@ -200,18 +177,12 @@ export default function HomePage() {
                   activeItem?.id === item.id ? "border-neon" : "border-white/10"
                 } bg-black/50 text-left shadow-lg shadow-neon/10 transition`}
               >
-                {item.type === "video" ? (
-                  <video
-                    src={item.url}
-                    className="h-full w-full object-cover opacity-70 transition group-hover:opacity-100"
-                    muted
-                    loop
-                  />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-neon/20 via-black to-black text-neon">
-                    <span className="text-lg font-semibold uppercase tracking-[0.3em]">Audio</span>
-                  </div>
-                )}
+                <video
+                  src={item.url}
+                  className="h-full w-full object-cover opacity-70 transition group-hover:opacity-100"
+                  muted
+                  loop
+                />
                 <div className="absolute bottom-0 left-0 right-0 bg-black/70 p-2 text-xs text-muted">
                   {item.prompt.length > 60 ? `${item.prompt.slice(0, 57)}...` : item.prompt}
                 </div>

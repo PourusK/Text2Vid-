@@ -19,11 +19,22 @@ export async function POST(req: Request) {
       return Response.json({ error: "Prompt is required" }, { status: 400 });
     }
 
-    if (!process.env.GEMINI_API_KEY) {
-      return Response.json({ error: "Missing GEMINI_API_KEY" }, { status: 500 });
+    const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+
+    if (!apiKey) {
+      console.error(
+        "[generate-video] Missing GEMINI_API_KEY/GOOGLE_API_KEY environment variable"
+      );
+      return Response.json(
+        {
+          error:
+            "GEMINI_API_KEY (or GOOGLE_API_KEY) environment variable is not configured.",
+        },
+        { status: 500 }
+      );
     }
 
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: MODEL_NAME }, { apiVersion: "v1beta" });
 
     const result: GeminiVideoResponse = await (model as unknown as {

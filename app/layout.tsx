@@ -10,7 +10,7 @@ const rajdhani = Rajdhani({
 
 export const metadata: Metadata = {
   title: "PokiPackage | SORA Text-to-Video Studio",
-  description: "Generate cinematic videos and audio narrations with OpenAI SORA and Audio APIs.",
+  description: "Generate cinematic videos with Google's Gemini models.",
 };
 
 export default function RootLayout({
