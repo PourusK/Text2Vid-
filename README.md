@@ -28,6 +28,14 @@ Create a `.env.local` file in the project root with your OpenAI credentials:
 OPENAI_API_KEY=your_openai_api_key
 ```
 
+To verify that the key is valid and that your account has access to the required models, run:
+
+```bash
+npm run check-key
+```
+
+The script performs a lightweight request to the OpenAI API and prints either a confirmation message or details about why the key was rejected (for example, a `401` if the key is invalid or lacks access).
+
 ### Running Locally
 ```bash
 npm run dev

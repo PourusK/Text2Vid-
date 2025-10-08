@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
+import { extractOpenAIError } from "../../../../lib/openaiError";
+
 type SoraVideoResponse = {
   data?: Array<{ url?: string | null } | null> | null;
   url?: string | null;
@@ -63,9 +65,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ url: videoUrl });
   } catch (error) {
     console.error("[generate-video] error:", error);
+
+    const { status, message } = extractOpenAIError(error);
+
     return NextResponse.json(
-      { error: "An error occurred while generating the video." },
-      { status: 500 }
+      {
+        error: message,
+      },
+      { status: status ?? 500 }
     );
   }
 }

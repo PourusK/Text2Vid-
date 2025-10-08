@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
+import { extractOpenAIError } from "../../../../lib/openaiError";
+
 export async function POST(request: Request) {
   try {
     const { text } = await request.json();
@@ -45,9 +47,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ url: audioUrl });
   } catch (error) {
     console.error("[generate-audio] error:", error);
+
+    const { status, message } = extractOpenAIError(error);
+
     return NextResponse.json(
-      { error: "An error occurred while generating the audio." },
-      { status: 500 }
+      { error: message },
+      { status: status ?? 500 }
     );
   }
 }
